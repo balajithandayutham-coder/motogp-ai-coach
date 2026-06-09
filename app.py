@@ -443,33 +443,97 @@ def lap_row(lap_n: int, action: str, color: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VOICE ENGINE
+# VOICE ENGINE  (Web Speech API — zero dependencies, works on Streamlit Cloud)
 # ─────────────────────────────────────────────────────────────────────────────
-def _make_audio_html(text: str) -> str | None:
-    try:
-        from gtts import gTTS
-        buf = io.BytesIO()
-        gTTS(text=text[:500], lang="en", slow=False).write_to_fp(buf)
-        buf.seek(0)
-        b64 = base64.b64encode(buf.read()).decode()
-        return (
-            f'<audio autoplay controls style="width:100%;margin-top:10px;'
-            f'border-radius:4px;background:#101820;height:36px;">'
-            f'<source src="data:audio/mp3;base64,{b64}" type="audio/mp3">'
-            f'</audio>'
-        )
-    except Exception:
-        return None
+def _clean_for_speech(text: str) -> str:
+    """Strip markdown / special chars that confuse TTS."""
+    import re
+    text = re.sub(r"[*_`#►▶◉●•·\-–—]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()[:600]
 
 
 def voice_button(text: str, key: str):
-    if st.button("🎤 SPEAK REPORT", key=key):
-        with st.spinner("Generating voice output…"):
-            html = _make_audio_html(text)
-        if html:
-            H(html)
-        else:
-            alert("gTTS not available. Add <code>gtts</code> to requirements.txt", "warn")
+    """
+    Renders a speak button that uses the browser's built-in SpeechSynthesis API.
+    No Python packages, no network calls, works on every modern browser and
+    Streamlit Cloud out of the box.
+    """
+    safe_text = _clean_for_speech(text).replace("'", "\\'").replace("\n", " ")
+
+    # Unique container id so multiple buttons on same page don't clash
+    uid = key.replace("-", "_")
+
+    H(f"""
+    <div style="margin-top:10px;">
+      <button
+        id="vbtn_{uid}"
+        onclick="(function(){{
+          var btn  = document.getElementById('vbtn_{uid}');
+          var stop = document.getElementById('vstop_{uid}');
+          if (window.speechSynthesis.speaking) {{
+            window.speechSynthesis.cancel();
+            btn.innerHTML  = '🎤 SPEAK REPORT';
+            btn.style.background = 'linear-gradient(135deg,#1a2535,#243040)';
+            stop.style.display = 'none';
+            return;
+          }}
+          var msg = new SpeechSynthesisUtterance('{safe_text}');
+          msg.rate   = 0.92;
+          msg.pitch  = 0.88;
+          msg.volume = 1.0;
+          var voices = window.speechSynthesis.getVoices();
+          var eng = voices.find(function(v){{
+            return v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Daniel') || v.name.includes('Alex'));
+          }}) || voices.find(function(v){{ return v.lang.startsWith('en'); }});
+          if (eng) msg.voice = eng;
+          msg.onstart = function(){{
+            btn.innerHTML  = '⏹ STOP SPEAKING';
+            btn.style.background = 'linear-gradient(135deg,#800018,#FF0033)';
+            stop.style.display = 'inline-block';
+          }};
+          msg.onend = function(){{
+            btn.innerHTML  = '🎤 SPEAK REPORT';
+            btn.style.background = 'linear-gradient(135deg,#1a2535,#243040)';
+            stop.style.display = 'none';
+          }};
+          window.speechSynthesis.speak(msg);
+        }})()"
+        style="
+          font-family:'Orbitron',monospace;
+          font-size:10px;font-weight:700;
+          letter-spacing:2px;text-transform:uppercase;
+          background:linear-gradient(135deg,#1a2535,#243040);
+          color:#00F5FF;
+          border:1px solid rgba(0,245,255,0.35);
+          border-radius:4px;
+          padding:9px 20px;
+          cursor:pointer;
+          transition:all 0.2s;
+          margin-right:8px;
+        "
+        onmouseover="this.style.boxShadow='0 0 14px rgba(0,245,255,0.3)'"
+        onmouseout="this.style.boxShadow='none'"
+      >🎤 SPEAK REPORT</button>
+
+      <span id="vstop_{uid}"
+        style="
+          display:none;
+          font-family:'Share Tech Mono',monospace;
+          font-size:10px;color:#FF0033;
+          letter-spacing:1px;
+          animation: pulse_{uid} 1.2s infinite;
+        "
+      >● BROADCASTING</span>
+
+      <style>
+        @keyframes pulse_{uid} {{
+          0%,100% {{ opacity:1; }}
+          50%      {{ opacity:0.3; }}
+        }}
+      </style>
+    </div>
+    """)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
